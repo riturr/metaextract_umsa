@@ -14,3 +14,10 @@ El repositorio se encuentra estructurado de la siguiente manera:
 - `extractor_de_metadatos/`: Contiene el código de entrenamiento del extractor de metadatos.
 - `generator_de_palabras_clave/`: Contiene el código de entrenamiento del generador de palabras clave.
 - `demo/`: Contiene el código de la aplicación web que permite probar los modelos entrenados.
+
+## Modelos entrenados y datasets
+
+Los modelos entrenados se encuentran disponibles en 🤗 Hugging Face Hub y pueden ser descargados desde los siguientes enlaces:
+
+- [Modelo extractor de metadatos](https://huggingface.co/riturralde/es_metaextract_umsa_v2)
+- [Modelo generador de palabras clave](https://huggingface.co/riturralde/es_metaextract_umsa_adapter_v1)
