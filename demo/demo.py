@@ -14,6 +14,23 @@ from spacy import displacy, Language
 from spacy.tokens import Doc
 from pdf2image import convert_from_path
 
+FEW_SHOW_EXAMPLES = [
+    {
+        'title': 'Desarrollo de un dispositivo electrónico HID que permita el uso de las extremidades inferiores para la gestión de audio',
+        'abstract': 'El proyecto de grado que consiste en el desarrollo de un sistema integral compuesto por un dispositivo electrónico y una aplicación informática que trabajan juntos para lograr un objetivo común, este objetivo consta de implementar un dispositivo que permita la gestión de audio digital, en una computadora por medio de las extremidades inferiores, mediante las entradas digitales y analógicas procedentes del dispositivo electrónico y dirigidas hacia la aplicación informática en la computadora por medio del estándar USB, utilizando para este efecto la placa de desarrollo Arduino y programación en el lenguaje C en el entorno de desarrollo Atmel Studio 6.2, para desarrollar un firmware y C# en el entorno de desarrollo Visual Studio 2017, para el desarrollo de la aplicación en la computadora. Desarrollar un dispositivo electrónico de interfaz humana (HID) como periférico de un computador que permita el uso de las extremidades inferiores para la gestión de audio.',
+        'subjects': ['dispositivo electrónico HID', 'gestión de audio digital', 'sistemas electrónicos']
+    },
+    {
+        'title': 'Reconocimiento de descanso post natal a los trabajadores esposos asegurados en un ente gestor de salud, por el advenimiento de un hijo en su hogar',
+        'abstract': 'El presente trabajo tenía como objetivo principal la obtención de sulfato ferroso heptahidratado a partir de los lodos generados en el tratamiento del Drenaje Ácido de Mina de la bocamina del Nivel 96, del centro minero de Tasna y su posterior aplicación como coagulante para tratar aguas residuales. El tratamiento del DAM se realizó en el mismo centro minero de Tasna, ubicado en el municipio de Cotagaita del departamento de Potosí. El DAM del Nivel 96 presentó un pH =2,39, este se trató con cal comercial para su neutralización llegando hasta pH=9,5. La caracterización del DAM se realizó por la técnica de absorción atómica realizando las mediciones en muestras de agua antes y después del tratamiento, los resultados obtenidos indicaron que se lograron remover metales como Fe, Pb, Cd, Cu y Zn. Los lodos obtenidos del tratamiento del DAM fueron transportados a los laboratorios de la Carrera de Ciencias Químicas de la UMSA para realizar las pruebas de obtención de sulfato ferroso heptahidratado, además de su caracterización por FRX. De la técnica de FRX se determinó la concentración de Fe en los lodos igual a 17,14%. El sulfato ferroso heptahidratado obtenido se caracterizó por las técnicas de FRX y DRX. A la vez los rendimientos de obtención fueron mayores al 80%. Con base en el producto obtenido de sulfato ferroso heptahidratado se preparó un coagulante para tratar una muestra de agua residual, realizando una prueba de jarras con 5 concentraciones diferentes en mg Fe/L de agua a tratar. De la prueba de jarras se concluyó que utilizando concentraciones > 50 mg Fe/L se logró remover más del 90% de turbiedad de una muestra de agua residual.',
+        'subjects': ['drenaje ácido de mina', 'obtención de sulfato ferroso heptahidratado', 'prueba de jarras']
+    },
+    {
+        'title': 'Estudio y diseño de una red de fibra óptica PON-LAN para proveer servicios de voz, video y datos aplicado a la Facultad de Ciencias Puras y Naturales, Universidad Mayor de San Andrés (Cota Cota)',
+        'abstract': 'En el presente documento se propone el diseño de una red de fibra óptica mediante las tecnologías PON-LAN (Pasive Optical Network, Red Óptica Pasiva) - (Local Area Network, Redes de Área Local), como innovación para la infraestructura de red LAN en la Facultad de Ciencias Puras y Naturales de la Universidad Mayor de San Andrés, ubicada en el campus universitario de Cota Cota, con una topología de red punto-multipunto. El proyecto prevé la instalación de la fibra óptica por tendido aéreo con el fin de realizar un reordenamiento de cables. El diseño de la red se basa en equipos pasivos (splitters) y en sus extremos equipos activos como OLT (Optical Line Terminal) y ONT (Optical Network Terminal), los mismos que están conectados por splitters de primer y segundo nivel a lo largo del trayecto de la red. Se realizaron cálculos teóricos del presupuesto óptico para la red de accesos, además de realizar la simulación de la red en la zona de estudio en la cual consideraremos los parámetros de atenuación de cada elemento físico seleccionado. Posteriormente, se presenta las características de los equipos planteados y un presupuesto económico para una futura implementación, en el cual se detallan mano de obra, fibra óptica, materiales, entre otros.',
+        'subjects': ['red de fibra óptica', 'PON-LAN', 'servicios de voz']
+    }
+]
 
 class DemoApp:
     def __init__(self, ner_model: Language, llm_model: Any | None = None, pos_model: Language | None = None):
@@ -56,7 +73,9 @@ class DemoApp:
         return gr.Image(cover_page_img, width=400, height=600), gr.Image(abstract_page_img, width=400, height=600)
 
     def extract_text_from_abstract_page(self, abstract_page_img: Image) -> str:
-        return pytesseract.image_to_string(abstract_page_img, lang="spa").replace('\n', ' ')
+        abstract_text = pytesseract.image_to_string(abstract_page_img, lang="spa")
+        abstract_text = " ".join(abstract_text.split())
+        return abstract_text
 
     def extract_text_from_cover_page(self, cover_page_img: Image) -> str:
         return pytesseract.image_to_string(self.mask_logos(cover_page_img), lang="spa")
@@ -100,19 +119,55 @@ class DemoApp:
         )
         return html
 
+    def get_keywords_few_shot(self, title, abstract, examples: list[dict] = FEW_SHOW_EXAMPLES):
+        title_text = title.capitalize() if title.isupper() else title
+        # remove duplicate spaces
+        title_text = " ".join(title_text.split())
+        title_text = self.capitalize_proper_nouns(title_text, abstract) if self.pos_model else title_text
+
+        text = ""
+
+        for example in examples:
+            text = text + f"""[INST] Extrae palabras clave desde el siguiente texto. Las palabras clave deben ser relevantes al tema del texto y deben ser capaces de representar el contenido del texto de manera concisa:
+        
+### Titulo del texto: {example['title']}
+### Resumen del texto: {example['abstract']}
+
+### La lista debe contener a lo sumo 5 palabras clave y debe estar en Espanol. Si la lista contiene mas de 5 palabras clave seras penalizado. [/INST] Palabras clave: {', '.join(example['subjects'])} </s>
+
+
+"""
+
+        text = text + f"""[INST] Extrae palabras clave desde el siguiente texto. Las palabras clave deben ser relevantes al tema del texto y deben ser capaces de representar el contenido del texto de manera concisa:
+    
+### Titulo del texto: {title_text}
+### Resumen del texto: {abstract}
+ 
+### La lista debe contener a lo sumo 5 palabras clave y debe estar en Espanol. Si la lista contiene mas de 5 palabras clave seras penalizado. [/INST]"""
+        inputs = self.tokenizer(text, return_tensors="pt").to(0) # , do_sample=True, top_k=5, top_p=0.5, exponential_decay_length_penalty=(15, 1.01), temperature=0.1
+        out = self.llm_model.generate(
+            **inputs,
+            max_new_tokens=150,
+            do_sample=True,
+            top_p=0.5,
+            top_k=5,
+            exponential_decay_length_penalty=(15, 1.01),
+            temperature=0.1)
+        keywords: str = self.tokenizer.decode(out[0], skip_special_tokens=True)
+        print("#" * 20)
+        print("Prompt with completions:")
+        print("#" * 20)
+        print(keywords)
+        keywords = keywords[keywords.rindex('[/INST]'):]
+        keywords = keywords.replace('[/INST]', '')
+        keywords = keywords.split(':')[-1]
+        keywords = keywords.split(',')
+        keywords = [keyword.strip().upper() for keyword in keywords]
+        return keywords
+
     def generate_keywords(self, title, abstract) -> list[str]:
         if self.llm_model:
-            text = f"[INST] Extrae palabras clave desde el siguiente texto. Las palabras clave deben ser relevantes al tema del texto y deben ser capaces de representar el contenido del texto de manera concisa:\n\n### ### Titulo del texto: {title}\n### Resumen del texto: {abstract}\n\n### La lista debe contener a lo sumo 5 palabras clave y debe estar en Espanol. Si la lista contiene mas de 5 palabras clave seras penalizado. [/INST]"
-            print(text)
-            inputs = self.tokenizer(text, return_tensors="pt").to(0)
-            encoded_keywords = self.llm_model.generate(**inputs, max_new_tokens=150, do_sample=True, top_k=5, top_p=0.5, exponential_decay_length_penalty=(15, 1.01), temperature=0.1)
-            keywords: str = self.tokenizer.decode(encoded_keywords[0], skip_special_tokens=True)
-            keywords = keywords[keywords.rindex('[/INST]'):]
-            keywords = keywords.replace('[/INST]', '')
-            keywords = keywords.split(':')[-1]
-            keywords = keywords.split(',')
-            keywords1 = [keyword.strip().upper() for keyword in keywords]
-            return keywords1
+            return self.get_keywords_few_shot(title, abstract)
         else:
             return ["No se pudo generar palabras clave. Modelo de lenguaje no disponible."]
 
@@ -136,11 +191,21 @@ class DemoApp:
             self.render_dublin_core_xml_as_markdown(dublin_core_output)
         )
 
-    def capitalize_proper_nouns(self, text: str) -> str:
+    def capitalize_propn(self, propn: str, ref_text: str):
+        # find first occurrence of word in ref_text and return it. If not found, return word capitalized
+        ref_text_words = ref_text.lower().split()
+        try:
+            propn_index = ref_text_words.index(propn)
+            propn_capitalized = ref_text.split()[propn_index]
+            return propn_capitalized
+        except ValueError:
+            return propn.capitalize()
+
+    def capitalize_proper_nouns(self, text: str, reference_text: str = "") -> str:
         doc = self.pos_model(text)
         return "".join(
             [
-                token.text.capitalize() + token.whitespace_
+                self.capitalize_propn(token.text, reference_text) + token.whitespace_
                 if token.pos_ == "PROPN"
                 else token.text + token.whitespace_
                 for token in doc
@@ -261,7 +326,7 @@ class DemoApp:
         self.ui.launch()
 
 
-def load_llm_model():
+def load_llm_model(adapter=None):
     from transformers import AutoTokenizer, MistralForCausalLM
     from auto_gptq import exllama_set_max_input_length
 
@@ -271,13 +336,17 @@ def load_llm_model():
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
-    adapter = "riturralde/es_metaextract_umsa_adapter_v1"
-    model.load_adapter(adapter)
+    if adapter:
+        model.load_adapter(adapter)
     return model, tokenizer
 
 
 if __name__ == '__main__':
     # app = DemoApp(spacy.load("../../scrapy/final_ner_model"), None, pos_model=spacy.load("es_core_news_lg"))
-    app = DemoApp(spacy.load("es_metaextract_umsa_v2"), load_llm_model())
+    app = DemoApp(
+        ner_model=spacy.load("es_metaextract_umsa_v2"),
+        llm_model=load_llm_model(),
+        pos_model=spacy.load("es_core_news_lg")
+    )
     # app = DemoApp(spacy.load("es_metaextract_umsa_v2"))
     app.run()
