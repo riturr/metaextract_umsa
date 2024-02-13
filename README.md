@@ -1,6 +1,6 @@
 **Aplicación de técnicas de Machine Learning y Natural Language Processing para la extracción automática de metadatos bibliográficos desde documento académicos de la Universidad Mayor de San Andrés**
 
-https://github.com/riturr/metaextract_umsa/assets/96321921/8365e928-16f0-40dc-9093-4682637dd49f
+https://github.com/riturr/metaextract_umsa/assets/96321921/02ab9102-af88-4bed-acce-c6c9d0a5bef2
 
 Este repositorio contiene el codigo desarrollado como parte del proyecto de grado "Aplicación de técnicas de Machine Learning y Natural Language Processing para la extracción automática de metadatos bibliográficos en documento académicos de la Universidad Mayor de San Andrés" para el pregrado en Ingeniería Electrónica de la Universidad Mayor de San Andrés.
 
