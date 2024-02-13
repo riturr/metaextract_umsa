@@ -13,6 +13,7 @@ import spacy
 from spacy import displacy, Language
 from spacy.tokens import Doc
 from pdf2image import convert_from_path
+import argparse
 
 FEW_SHOW_EXAMPLES = [
     {
@@ -46,16 +47,15 @@ class DemoApp:
         max_pages_to_scan = 25
         for page_index in range(0, max_pages_to_scan):
             if page_index > len(reader.pages) - 1:
-                raise "No se pudo extraer el resumen del proyecto"
+                raise gr.Error("No se pudo extraer el resumen del proyecto")
             page_text = unidecode(reader.pages[page_index].extract_text()).lower()
             is_page_toc = page_text.count('tabla') > 2 or page_text.count('figura') > 2 or page_text.count('.') > 50
 
             if pattern in page_text and not is_page_toc:
                 image = convert_from_path(pdf_file_path, fmt='png', first_page=page_index + 1, last_page=page_index + 1)[0]
                 print(f"Successfully extracted abstract page from {pdf_file_path}")
-                image.save('abstract_page.jpg')
                 return image
-        raise "No se pudo extraer el resumen del proyecto"
+        raise gr.Error("No se pudo extraer el resumen del proyecto")
 
     @lru_cache(maxsize=1)
     def extract_cover_page(self, pdf_file_path) -> Image:
@@ -70,7 +70,11 @@ class DemoApp:
             return None, None
         abstract_page_img = self.extract_abstract_page(pdf)
         cover_page_img = self.extract_cover_page(pdf)
-        return gr.Image(cover_page_img, width=400, height=600), gr.Image(abstract_page_img, width=400, height=600)
+        return (
+            gr.Image(cover_page_img, width=400, height=600),
+            gr.Image(abstract_page_img, width=400, height=600),
+            pdf
+        )
 
     def extract_text_from_abstract_page(self, abstract_page_img: Image) -> str:
         abstract_text = pytesseract.image_to_string(abstract_page_img, lang="spa")
@@ -119,11 +123,8 @@ class DemoApp:
         )
         return html
 
-    def get_keywords_few_shot(self, title, abstract, examples: list[dict] = FEW_SHOW_EXAMPLES):
-        title_text = title.capitalize() if title.isupper() else title
-        # remove duplicate spaces
-        title_text = " ".join(title_text.split())
-        title_text = self.capitalize_proper_nouns(title_text, abstract) if self.pos_model else title_text
+    def get_keywords_few_shot(self, title, abstract, examples: list[dict] = FEW_SHOW_EXAMPLES) -> (list[str], str):
+        title_text = self.capitalize_proper_nouns(title, abstract) if self.pos_model else title
 
         text = ""
 
@@ -152,32 +153,56 @@ class DemoApp:
             top_p=0.5,
             top_k=5,
             exponential_decay_length_penalty=(15, 1.01),
-            temperature=0.1)
-        keywords: str = self.tokenizer.decode(out[0], skip_special_tokens=True)
+            temperature=0.1
+        )
+        prompt: str = self.tokenizer.decode(out[0], skip_special_tokens=True)
         print("#" * 20)
         print("Prompt with completions:")
         print("#" * 20)
-        print(keywords)
-        keywords = keywords[keywords.rindex('[/INST]'):]
+        print(prompt)
+        keywords = prompt[prompt.rindex('[/INST]'):]
         keywords = keywords.replace('[/INST]', '')
         keywords = keywords.split(':')[-1]
         keywords = keywords.split(',')
         keywords = [keyword.strip().upper() for keyword in keywords]
-        return keywords
+        return keywords, prompt
 
-    def generate_keywords(self, title, abstract) -> list[str]:
+    def generate_keywords(self, title, abstract) -> (list[str], str):
         if self.llm_model:
             return self.get_keywords_few_shot(title, abstract)
         else:
-            return ["No se pudo generar palabras clave. Modelo de lenguaje no disponible."]
+            return ["No se pudo generar palabras clave. Modelo de lenguaje no disponible."], ""
 
-    def extract_metadata(self, pdf_file_path) -> (str, str, str):
+    def extract_metadata(self, pdf_file_path) -> (str, str, str, str, str, str, str, str, str, str, str, str, str):
+        """
+        Extracts metadata from a PDF file and returns it as a tuple of strings
+        :param pdf_file_path:
+        :return: faculty, dept, title, author1, author2, advisor1, advisor2, year, keywords, dublin_core_xml
+        """
         cover_page_text = self.extract_text_from_cover_page(self.extract_cover_page(pdf_file_path))
         cover_page_metadata = self.recognize_entities(cover_page_text)
 
         title = next((ent.text for ent in cover_page_metadata.ents if ent.label_ == "TITLE"), "")
+        title = " ".join(title.split())  # remove extra spaces
+
         abstract_page_text = self.extract_text_from_abstract_page(self.extract_abstract_page(pdf_file_path))
-        abstract_page_keywords = self.generate_keywords(title, abstract_page_text)
+        abstract_page_keywords, prompt = self.generate_keywords(title, abstract_page_text)
+
+        faculty = next((ent.text for ent in cover_page_metadata.ents if ent.label_ == "FACULTY"), "")
+        faculty = " ".join(faculty.split())  # remove extra spaces
+
+        dept = next((ent.text for ent in cover_page_metadata.ents if ent.label_ == "DEPARTMENT"), "")
+        dept = " ".join(dept.split())  # remove extra spaces
+
+        # get first author
+        author1 = next((ent.text for ent in cover_page_metadata.ents if ent.label_ == "AUTHOR"), "")
+        # get second author
+        author2 = next((ent.text for ent in cover_page_metadata.ents if ent.label_ == "AUTHOR" and ent.text != author1), "")
+        # get first advisor
+        advisor1 = next((ent.text for ent in cover_page_metadata.ents if ent.label_ == "ADVISOR"), "")
+        # get second advisor
+        advisor2 = next((ent.text for ent in cover_page_metadata.ents if ent.label_ == "ADVISOR" and ent.text != advisor1), "")
+        year = next((ent.text for ent in cover_page_metadata.ents if ent.label_ == "YEAR"), "")
 
         dublin_core_output = self.get_dublin_core_metadata(
             cover_page_metadata,
@@ -186,9 +211,18 @@ class DemoApp:
         )
 
         return (
-            self.render_doc_entities_as_html(cover_page_metadata),
+            faculty,
+            dept,
+            self.capitalize_proper_nouns(title, abstract_page_text),
+            self.capitalize_proper_nouns(author1.title()),
+            self.capitalize_proper_nouns(author2.title()),
+            self.capitalize_proper_nouns(advisor1.title()),
+            self.capitalize_proper_nouns(advisor2.title()),
+            year,
             self.render_keywords_as_markdown(abstract_page_keywords),
-            self.render_dublin_core_xml_as_markdown(dublin_core_output)
+            self.render_dublin_core_xml_as_markdown(dublin_core_output),
+            self.render_doc_entities_as_html(cover_page_metadata),
+            prompt
         )
 
     def capitalize_propn(self, propn: str, ref_text: str):
@@ -202,7 +236,16 @@ class DemoApp:
             return propn.capitalize()
 
     def capitalize_proper_nouns(self, text: str, reference_text: str = "") -> str:
-        doc = self.pos_model(text)
+        if not self.pos_model:
+            return text
+
+        if not text.isupper():
+            # if text is not in uppercase, we assume it's already capitalized
+            return text
+
+        capitalized_text = text.capitalize()
+
+        doc = self.pos_model(capitalized_text)
         return "".join(
             [
                 self.capitalize_propn(token.text, reference_text) + token.whitespace_
@@ -277,28 +320,56 @@ class DemoApp:
         return f"```xml\n{dublin_core_output}\n```"
 
     def render_keywords_as_markdown(self, keywords: list[str]):
-        return "\n".join([f"{i+1}. {keyword}" for i, keyword in enumerate(keywords)])
+        return "\n".join([f"{i+1}. {keyword.upper()}" for i, keyword in enumerate(keywords)])
+
+    def create_textbox(self, label, show_label=True, container=True, lines=1, max_lines=1, interactive=True):
+        return gr.Textbox(
+            None,
+            label=label,
+            show_label=show_label,
+            container=container,
+            lines=lines,
+            max_lines=max_lines,
+            interactive=interactive
+        )
 
     def build_ui(self):
-        with gr.Blocks() as ui:
+        with gr.Blocks(title="MetaExtract - UMSA", analytics_enabled=False) as ui:
             with gr.Row():
                 # in this column we will preview the input PDF
-                with gr.Column():
+                with gr.Column(scale=5):
                     gr.Markdown("# Vista previa del PDF")
                     with gr.Row():
                         cover_page_preview = gr.Image(None, interactive=False, label="Carátula", show_label=True)
                         abstract_page_preview = gr.Image(None, interactive=False, label="Resumen", show_label=True)
+                    filename = gr.Markdown()
                 # in this column we will see the extracted metadata
-                with gr.Column():
+                with gr.Column(scale=4):
                     gr.Markdown("# Metadatos extraídos")
-                    with gr.Accordion(label="Metadatos extraídos desde la carátula", open=True):
-                        entities_placeholder = "<p>El texto de la carátula con entidades resaltadas aparecerá aquí</p>"
-                        entities = gr.HTML()
-                    # keywords = gr.Textbox(None, label="Palabras Clave generadas desde el resumen", show_label=True)
-                    with gr.Accordion(label="Palabras Clave generadas desde el resumen", open=True):
-                        keywords = gr.Markdown("", label="Palabras Clave generadas desde el resumen", show_label=True)
-                    with gr.Accordion(label="Metadatos en Dublin Core", open=False):
-                        dublin_core_xml = gr.Markdown()
+                    with gr.Tab("Vista de formulario"):
+                        with gr.Group():
+                            with gr.Row():
+                                faculty = self.create_textbox("Facultad")
+                                dept = self.create_textbox("Carrera")
+                            title = self.create_textbox("Título")
+                            with gr.Row():
+                                author1 = self.create_textbox("Autor 1")
+                                author2 = self.create_textbox("Autor 2")
+                            with gr.Row():
+                                advisor1 = self.create_textbox("Asesor 1")
+                                advisor2 = self.create_textbox("Asesor 2")
+                            year = self.create_textbox("Año")
+                            keywords = self.create_textbox("Palabras clave", lines=5, max_lines=10)
+                    with gr.Tab("Vista de salidas de los modelos"):
+                        with gr.Accordion(label="Texto anotado con las entidades reconocidas por el modelo NER", open=True):
+                            entities = gr.HTML()
+                        with gr.Accordion(label="Prompt consultado al LLM", open=True):
+                            prompt = gr.TextArea(None, show_label=False, container=False)
+
+                    with gr.Tab("Vista de metadatos en Dublin Core"):
+                        with gr.Accordion(label="Metadatos en Dublin Core", open=True):
+                            dublin_core_xml = gr.Markdown()
+
             # action buttons
             with gr.Row():
                 input_pdf = gr.UploadButton(file_types=["pdf"], label="Abrir PDF", variant="secondary", size="sm")
@@ -306,23 +377,52 @@ class DemoApp:
                 input_pdf.upload(
                     fn=self.load_preview_images,
                     inputs=input_pdf,
-                    outputs=[cover_page_preview, abstract_page_preview]
+                    outputs=[cover_page_preview, abstract_page_preview, filename]
                 )
-                extract_button.click(self.extract_metadata, input_pdf, [entities, keywords, dublin_core_xml])
+                extract_button.click(
+                    fn=self.extract_metadata,
+                    inputs=input_pdf,
+                    outputs=[
+                        faculty,
+                        dept,
+                        title,
+                        author1,
+                        author2,
+                        advisor1,
+                        advisor2,
+                        year,
+                        keywords,
+                        dublin_core_xml,
+                        entities,
+                        prompt
+                    ]
+                )
                 gr.ClearButton(
                     components=[
                         input_pdf,
                         cover_page_preview,
                         abstract_page_preview,
+                        faculty,
+                        dept,
+                        title,
+                        author1,
+                        author2,
+                        advisor1,
+                        advisor2,
+                        year,
+                        dublin_core_xml,
                         entities,
+                        prompt,
                         keywords,
-                        dublin_core_xml],
+                        filename
+                    ],
                     value='Limpiar campos',
                     variant='stop'
                 )
         return ui
 
     def run(self):
+        self.ui.dependencies[1]["show_progress"] = "minimal"
         self.ui.launch()
 
 
@@ -342,11 +442,13 @@ def load_llm_model(adapter=None):
 
 
 if __name__ == '__main__':
-    # app = DemoApp(spacy.load("../../scrapy/final_ner_model"), None, pos_model=spacy.load("es_core_news_lg"))
+    parser = argparse.ArgumentParser(description='Run the MetaExtract UMSA demo')
+    parser.add_argument('--no-keywords', action='store_true', help='No usar modelo de lenguaje para generar palabras clave', default=False)
+    args = parser.parse_args()
+
     app = DemoApp(
         ner_model=spacy.load("es_metaextract_umsa_v2"),
-        llm_model=load_llm_model(),
+        llm_model=None if args.no_keywords else load_llm_model(),
         pos_model=spacy.load("es_core_news_lg")
     )
-    # app = DemoApp(spacy.load("es_metaextract_umsa_v2"))
     app.run()

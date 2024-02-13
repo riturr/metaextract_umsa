@@ -9,8 +9,9 @@ Este repositorio contiene una aplicación de demostración que permite probar lo
 Para ejecutar la demostración, se debe instalar las dependencias de Python:
 
 ```bash
-pip install https://huggingface.co/spacy/en_core_web_sm/resolve/main/en_core_web_sm-any-py3-none-any.whl
+pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu118
 pip install -r requirements.txt
+pip install auto-gptq==0.4.2 --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu118/
 ```
 
 ## Ejecución
@@ -21,5 +22,10 @@ Para ejecutar la demostración, se debe ejecutar el siguiente comando:
 python demo.py
 ```
 
+En caso de no contar con una GPU, se puede ejecutar la aplicación sin el modelo de generación de palabras clave, utilizando el siguiente comando:
+
+```bash
+python demo.py --no-keywords
+```
 
 
